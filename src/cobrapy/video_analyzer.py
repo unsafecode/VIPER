@@ -1,13 +1,14 @@
-import os
 import json
+import os
 import time
 import asyncio
 import nest_asyncio
-from typing import Optional, Union, Type
+from typing import Any, Optional, Union, Type
 from openai import AzureOpenAI, AsyncAzureOpenAI
 
+from .azure_credentials import build_async_azure_credential, build_azure_credential
 from .models.video import VideoManifest, Segment
-from .models.environment import CobraEnvironment
+from .models.environment import CobraEnvironment, GPTVision
 from .analysis import AnalysisConfig
 from .analysis.base_analysis_config import SequentialAnalysisConfig
 from .cobra_utils import (
@@ -15,6 +16,62 @@ from .cobra_utils import (
     validate_video_manifest,
     write_video_manifest,
 )
+
+
+_AZURE_OPENAI_TOKEN_SCOPE = "https://cognitiveservices.azure.com/.default"
+_MAX_COMPLETION_TOKENS = 2000
+
+
+def _get_completion_token_args(deployment: str) -> dict[str, int]:
+    if "gpt-5" in deployment.lower():
+        return {"max_completion_tokens": _MAX_COMPLETION_TOKENS}
+    return {"max_tokens": _MAX_COMPLETION_TOKENS}
+
+
+def _build_azure_openai_client_kwargs(
+    vision_config: GPTVision,
+) -> tuple[dict[str, Any], Any]:
+    client_kwargs: dict[str, Any] = {
+        "api_version": vision_config.api_version,
+        "azure_endpoint": vision_config.endpoint,
+    }
+
+    if vision_config.api_key:
+        client_kwargs["api_key"] = vision_config.api_key.get_secret_value()
+        return client_kwargs, None
+
+    from azure.identity import get_bearer_token_provider
+
+    credential = build_azure_credential(
+        managed_identity_client_id=vision_config.managed_identity_client_id
+    )
+    client_kwargs["azure_ad_token_provider"] = get_bearer_token_provider(
+        credential, _AZURE_OPENAI_TOKEN_SCOPE
+    )
+    return client_kwargs, credential
+
+
+def _build_async_azure_openai_client_kwargs(
+    vision_config: GPTVision,
+) -> tuple[dict[str, Any], Any]:
+    client_kwargs: dict[str, Any] = {
+        "api_version": vision_config.api_version,
+        "azure_endpoint": vision_config.endpoint,
+    }
+
+    if vision_config.api_key:
+        client_kwargs["api_key"] = vision_config.api_key.get_secret_value()
+        return client_kwargs, None
+
+    from azure.identity.aio import get_bearer_token_provider
+
+    credential = build_async_azure_credential(
+        managed_identity_client_id=vision_config.managed_identity_client_id
+    )
+    client_kwargs["azure_ad_token_provider"] = get_bearer_token_provider(
+        credential, _AZURE_OPENAI_TOKEN_SCOPE
+    )
+    return client_kwargs, credential
 
 
 class VideoAnalyzer:
@@ -540,34 +597,38 @@ class VideoAnalyzer:
     def _call_llm(self, messages_list: list):
         vision_config = self.env.require_vision()
 
-        client = AzureOpenAI(
-            api_key=vision_config.api_key.get_secret_value(),
-            api_version=vision_config.api_version,
-            azure_endpoint=vision_config.endpoint,
-        )
-
-        response = client.chat.completions.create(
-            model=vision_config.deployment,
-            messages=messages_list,
-            max_tokens=2000,
-        )
+        client_kwargs, credential = _build_azure_openai_client_kwargs(vision_config)
+        client = AzureOpenAI(**client_kwargs)
+        try:
+            response = client.chat.completions.create(
+                model=vision_config.deployment,
+                messages=messages_list,
+                **_get_completion_token_args(vision_config.deployment),
+            )
+        finally:
+            client.close()
+            if credential is not None:
+                credential.close()
 
         return response
 
     async def _call_llm_async(self, messages_list: list):
         vision_config = self.env.require_vision()
 
-        client = AsyncAzureOpenAI(
-            api_key=vision_config.api_key.get_secret_value(),
-            api_version=vision_config.api_version,
-            azure_endpoint=vision_config.endpoint,
+        client_kwargs, credential = _build_async_azure_openai_client_kwargs(
+            vision_config
         )
-
-        response = await client.chat.completions.create(
-            model=vision_config.deployment,
-            messages=messages_list,
-            max_tokens=2000,
-        )
+        client = AsyncAzureOpenAI(**client_kwargs)
+        try:
+            response = await client.chat.completions.create(
+                model=vision_config.deployment,
+                messages=messages_list,
+                **_get_completion_token_args(vision_config.deployment),
+            )
+        finally:
+            await client.close()
+            if credential is not None:
+                await credential.close()
 
         return response
 

@@ -295,7 +295,7 @@ class VideoPreProcessor:
     def _extract_audio(self, max_workers: int):
         audio_path = os.path.join(
             self.manifest.processing_params.output_directory,
-            f"{os.path.splitext(self.manifest.name)[0]}.mp3",
+            f"{os.path.splitext(self.manifest.name)[0]}.wav",
         )
 
         # Use FFmpeg to extract audio
@@ -318,7 +318,7 @@ class VideoPreProcessor:
             )
 
             # Calculate number of chunks
-            splitting_value = int(audio_file_size_mb / 20)
+            splitting_value = math.ceil(audio_file_size_mb / 20)
             duration = float(self.manifest.source_video.duration)
             chunk_size = duration / splitting_value
 
@@ -329,7 +329,7 @@ class VideoPreProcessor:
                 end = min(chunk_size * (counter + 1), duration)
                 audio_chunk_path = os.path.join(
                     self.manifest.processing_params.output_directory,
-                    f"{os.path.splitext(self.manifest.name)[0]}_{counter + 1}.mp3",
+                    f"{os.path.splitext(self.manifest.name)[0]}_{counter + 1}.wav",
                 )
                 extract_args_list.append(
                     (self.manifest.source_video.path, start, end, audio_chunk_path)

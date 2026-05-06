@@ -40,6 +40,12 @@ param searchServiceName string = ''
 @description('Name of the Azure Cosmos DB account')
 param cosmosAccountName string = ''
 
+@description('Create a new Azure Cosmos DB account for manifest storage. Disabled by default because VIPER currently does not use Cosmos at runtime.')
+param createCosmosAccount bool = false
+
+@description('Provision the Viper frontend container app. Set to false for backend-only COBRA API deployments.')
+param enableFrontend string = 'true'
+
 @description('Azure AI Search index name')
 param searchIndexName string = 'viper-search'
 
@@ -69,11 +75,17 @@ param azureOpenaiGptVisionApiVersion string = '2024-06-01'
 @description('Azure OpenAI GPT Vision Deployment name')
 param azureOpenaiGptVisionDeployment string = 'gpt4o'
 
+@description('Azure OpenAI or Azure AI Services resource ID used for backend managed identity RBAC')
+param azureOpenaiGptVisionResourceId string = ''
+
 @description('Azure Speech Region')
 param azureSpeechRegion string = ''
 
 @description('Azure Speech use managed identity')
 param azureSpeechUseManagedIdentity string = 'true'
+
+@description('Azure Speech or AI Services resource ID for Entra ID authentication')
+param azureSpeechResourceId string = ''
 
 @description('Azure Storage Account URL (auto-generated if not provided)')
 param azureStorageAccountUrl string = ''
@@ -110,7 +122,7 @@ param databaseUrl string = ''
 param nextauthSecret string = ''
 
 @description('NextAuth URL')
-param nextauthUrl string = 'http://localhost:3000'
+param nextauthUrl string = ''
 
 // Tags for all resources
 var tags = {
@@ -140,7 +152,9 @@ var resolvedFrontendAppName = !empty(frontendContainerAppName) ? frontendContain
 var resolvedVirtualNetworkName = !empty(virtualNetworkName) ? virtualNetworkName : '${abbrs.virtualNetwork}${environmentName}'
 var resolvedStorageAccountName = !empty(storageAccountName) ? storageAccountName : '${abbrs.storageAccount}${resourceToken}'
 var resolvedSearchServiceName = !empty(searchServiceName) ? searchServiceName : '${abbrs.searchService}${resourceToken}'
-var resolvedCosmosAccountName = !empty(cosmosAccountName) ? cosmosAccountName : '${abbrs.cosmosAccount}${resourceToken}'
+var resolvedCosmosAccountName = createCosmosAccount ? (!empty(cosmosAccountName) ? cosmosAccountName : '${abbrs.cosmosAccount}${resourceToken}') : cosmosAccountName
+var containerAppProvisionImage = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+var deployFrontend = toLower(trim(enableFrontend)) != 'false'
 
 // Resource Group
 resource rg 'Microsoft.Resources/resourceGroups@2022-09-01' = {
@@ -170,8 +184,10 @@ var backendEnvVars = {
   AZURE_OPENAI_GPT_VISION_ENDPOINT: azureOpenaiGptVisionEndpoint
   AZURE_OPENAI_GPT_VISION_API_VERSION: azureOpenaiGptVisionApiVersion
   AZURE_OPENAI_GPT_VISION_DEPLOYMENT: azureOpenaiGptVisionDeployment
+  AZURE_OPENAI_GPT_VISION_RESOURCE_ID: azureOpenaiGptVisionResourceId
   AZURE_SPEECH_REGION: azureSpeechRegion
   AZURE_SPEECH_USE_MANAGED_IDENTITY: azureSpeechUseManagedIdentity
+  AZURE_SPEECH_RESOURCE_ID: azureSpeechResourceId
   AZURE_STORAGE_ACCOUNT_URL: computedStorageAccountUrl
   AZURE_STORAGE_VIDEO_CONTAINER: storageVideoContainer
   AZURE_STORAGE_OUTPUT_CONTAINER: storageOutputContainer
@@ -194,7 +210,6 @@ var frontendEnvVars = {
   INDEX_NAME: searchIndexName
   DATABASE_URL: databaseUrl
   NEXTAUTH_SECRET: nextauthSecret
-  NEXTAUTH_URL: nextauthUrl
 }
 
 // Deploy Container Apps infrastructure using existing bicep
@@ -208,11 +223,16 @@ module containerApps '../azure/containerapps.bicep' = {
     logAnalyticsWorkspaceName: resolvedLogAnalyticsName
     backendContainerAppName: resolvedBackendAppName
     frontendContainerAppName: resolvedFrontendAppName
-    backendImage: '${acr.outputs.loginServer}/viper-backend:latest'
-    frontendImage: '${acr.outputs.loginServer}/viper-frontend:latest'
+    backendImage: containerAppProvisionImage
+    frontendImage: containerAppProvisionImage
+    enableFrontend: deployFrontend
+    nextAuthUrl: nextauthUrl
+    tags: tags
+    configureAcrRegistry: false
     virtualNetworkName: resolvedVirtualNetworkName
     storageAccountName: resolvedStorageAccountName
     searchServiceName: resolvedSearchServiceName
+    createCosmosAccount: createCosmosAccount
     cosmosAccountName: resolvedCosmosAccountName
     cosmosDatabaseName: cosmosDatabaseName
     cosmosContainerName: cosmosContainerName
@@ -228,6 +248,6 @@ output AZURE_RESOURCE_GROUP string = rg.name
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = acr.outputs.loginServer
 output AZURE_CONTAINER_REGISTRY_NAME string = acr.outputs.name
 output SERVICE_BACKEND_NAME string = resolvedBackendAppName
-output SERVICE_FRONTEND_NAME string = resolvedFrontendAppName
+output SERVICE_FRONTEND_NAME string = deployFrontend ? resolvedFrontendAppName : ''
 output SERVICE_FRONTEND_URL string = containerApps.outputs.frontendUrl
 output SERVICE_BACKEND_INTERNAL_URL string = containerApps.outputs.backendInternalUrl

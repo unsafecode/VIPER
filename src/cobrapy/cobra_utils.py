@@ -13,6 +13,7 @@ from typing import Iterable, Optional, Sequence, Tuple, Union
 
 _SPEECH_TOKEN_SCOPE = "https://cognitiveservices.azure.com/.default"
 
+from .azure_credentials import build_azure_credential
 from .models.environment import CobraEnvironment
 from .models.transcription import SegmentTiming, TranscriptionResult, WordTiming
 from .models.video import VideoManifest
@@ -34,10 +35,9 @@ def generate_safe_dir_name(name: str) -> str:
 
 
 def _acquire_managed_identity_token(env: CobraEnvironment) -> str:
-    from azure.identity import DefaultAzureCredential
-
-    credential = DefaultAzureCredential(
-        managed_identity_client_id=env.speech.managed_identity_client_id
+    speech_settings = env.require_speech()
+    credential = build_azure_credential(
+        managed_identity_client_id=speech_settings.managed_identity_client_id
     )
     try:
         return credential.get_token(_SPEECH_TOKEN_SCOPE).token
@@ -45,12 +45,17 @@ def _acquire_managed_identity_token(env: CobraEnvironment) -> str:
         credential.close()
 
 
+def _format_speech_authorization_token(env: CobraEnvironment, access_token: str) -> str:
+    speech_settings = env.require_speech()
+    return f"aad#{speech_settings.resource_id}#{access_token}"
+
+
 def _create_speech_config(
     env: CobraEnvironment, *, auth_token: Optional[str] = None
 ):
     import azure.cognitiveservices.speech as speechsdk
 
-    speech_settings = env.speech
+    speech_settings = env.require_speech()
 
     if speech_settings.use_managed_identity:
         if not auth_token:
@@ -58,7 +63,7 @@ def _create_speech_config(
                 "Managed identity requires an authorization token for Azure Speech."
             )
         speech_config = speechsdk.SpeechConfig(
-            auth_token=auth_token,
+            auth_token=_format_speech_authorization_token(env, auth_token),
             region=speech_settings.region,
         )
     else:
@@ -85,18 +90,21 @@ def _start_managed_identity_token_refresher(
 ):
     """Start a background thread that refreshes the speech token when needed."""
 
-    from azure.identity import DefaultAzureCredential
-
-    speech_settings = env.speech
-    credential = DefaultAzureCredential(
+    speech_settings = env.require_speech()
+    credential = build_azure_credential(
         managed_identity_client_id=speech_settings.managed_identity_client_id
     )
 
     def acquire_token() -> str:
-        return credential.get_token(_SPEECH_TOKEN_SCOPE).token
+        access_token = credential.get_token(_SPEECH_TOKEN_SCOPE).token
+        return _format_speech_authorization_token(env, access_token)
 
     # Set the initial token on the recognizer.
-    recognizer.authorization_token = initial_token or acquire_token()
+    recognizer.authorization_token = (
+        _format_speech_authorization_token(env, initial_token)
+        if initial_token
+        else acquire_token()
+    )
 
     stop_event = threading.Event()
 
@@ -132,7 +140,9 @@ def generate_transcript(audio_file_path: str, env: CobraEnvironment) -> Transcri
         raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
 
     managed_identity_token: Optional[str] = None
-    if env.speech.use_managed_identity:
+    speech_settings = env.require_speech()
+
+    if speech_settings.use_managed_identity:
         managed_identity_token = _acquire_managed_identity_token(env)
 
     speech_config = _create_speech_config(env, auth_token=managed_identity_token)
@@ -143,7 +153,7 @@ def generate_transcript(audio_file_path: str, env: CobraEnvironment) -> Transcri
     )
 
     stop_refresher: Optional[callable] = None
-    if env.speech.use_managed_identity:
+    if speech_settings.use_managed_identity:
         stop_refresher = _start_managed_identity_token_refresher(
             recognizer,
             env,
@@ -336,10 +346,17 @@ def extract_base_audio(video_path: str, audio_path: str) -> None:
         "ffmpeg",
         "-i",
         video_path,
-        "-q:a",
-        "0",
+        "-vn",
+        "-acodec",
+        "pcm_s16le",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
         "-map",
-        "a",
+        "0:a:0",
+        "-f",
+        "wav",
         audio_path,
         "-y",
         "-hide_banner",
@@ -359,10 +376,17 @@ def extract_audio_chunk(args: Tuple[str, float, float, str]):
         str(start),
         "-to",
         str(end),
-        "-q:a",
-        "0",
+        "-vn",
+        "-acodec",
+        "pcm_s16le",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
         "-map",
-        "a",
+        "0:a:0",
+        "-f",
+        "wav",
         audio_chunk_path,
         "-y",
         "-hide_banner",

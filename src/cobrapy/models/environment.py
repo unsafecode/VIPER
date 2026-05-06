@@ -4,7 +4,14 @@ from typing import Optional
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from pydantic import SecretStr, model_validator, Field, ValidationError, PrivateAttr
+from pydantic import (
+    SecretStr,
+    field_validator,
+    model_validator,
+    Field,
+    ValidationError,
+    PrivateAttr,
+)
 
 
 
@@ -69,9 +76,35 @@ class GPTVision(BaseSettings):
     )
 
     endpoint: str
-    api_key: SecretStr
+    api_key: Optional[SecretStr] = Field(
+        default=None,
+        description=(
+            "Optional Azure OpenAI API key. When omitted, Entra ID authentication "
+            "is used through the shared Azure credential chain."
+        ),
+    )
     api_version: str
     deployment: str
+    managed_identity_client_id: Optional[str] = Field(
+        default=None,
+        description="Optional client id when multiple managed identities are available.",
+    )
+
+    @field_validator("endpoint", "api_version", "deployment", mode="before")
+    @classmethod
+    def validate_required_string(cls, value, info):
+        if isinstance(value, str) and not value.strip():
+            raise ValueError(
+                f"AZURE_OPENAI_GPT_VISION_{info.field_name.upper()} must not be blank."
+            )
+        return value
+
+    @field_validator("api_key", "managed_identity_client_id", mode="before")
+    @classmethod
+    def normalize_blank_optional_strings(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 class AzureSpeech(BaseSettings):
@@ -82,6 +115,13 @@ class AzureSpeech(BaseSettings):
 
     region: str
     endpoint: Optional[str] = None
+    resource_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Azure resource ID for Entra ID Speech SDK authentication. Required "
+            "by the Speech SDK when using managed identity authorization tokens."
+        ),
+    )
     use_managed_identity: bool = Field(
         default=True,
         description="Whether managed identity should be used instead of an API key.",
@@ -98,15 +138,26 @@ class AzureSpeech(BaseSettings):
         default="en-US", description="Language to use for speech recognition."
     )
 
-    @model_validator(mode="before")
-    def validate_configuration(cls, values):
-        use_managed_identity = values.get("use_managed_identity", True)
-        api_key = values.get("api_key")
-        if not use_managed_identity and not api_key:
+    @field_validator(
+        "endpoint",
+        "resource_id",
+        "api_key",
+        "managed_identity_client_id",
+        mode="before",
+    )
+    @classmethod
+    def normalize_blank_optional_strings(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def validate_configuration(self):
+        if not self.use_managed_identity and not self.api_key:
             raise ValueError(
                 "AZURE_SPEECH_API_KEY must be provided when managed identity is disabled."
             )
-        return values
+        return self
 
 
 class AzureStorage(BaseSettings):
@@ -140,22 +191,6 @@ class AzureAISearch(BaseSettings):
 
     def is_configured(self) -> bool:
         return bool(self.endpoint and self.index_name)
-
-
-def _load_optional_vision() -> Optional[GPTVision]:
-    """Attempt to load the GPT vision configuration.
-
-    Missing environment variables are expected in many local development scenarios
-    where the vision pipeline is not configured.  Returning ``None`` keeps backend
-    startup seamless while deferring validation until the feature is used.
-    """
-
-    try:
-        return GPTVision()
-    except ValidationError:
-        return None
-
-
 class CobraEnvironment(BaseSettings):
     """Environment configuration for the Cobra backend."""
 
@@ -165,29 +200,36 @@ class CobraEnvironment(BaseSettings):
     )
 
     vision: Optional[GPTVision] = Field(
-
         default=None,
-
         description=(
             "Azure OpenAI vision configuration. ``None`` indicates that the required "
             "environment variables were not provided."
         ),
     )
-    speech: AzureSpeech = Field(default_factory=AzureSpeech)
+    speech: Optional[AzureSpeech] = Field(
+        default=None,
+        description=(
+            "Azure Speech configuration. ``None`` indicates that the required "
+            "environment variables were not provided."
+        ),
+    )
     storage: AzureStorage = Field(default_factory=AzureStorage)
     search: AzureAISearch = Field(default_factory=AzureAISearch)
 
     _vision_error: Optional[str] = PrivateAttr(default=None)
+    _speech_error: Optional[str] = PrivateAttr(default=None)
 
     @model_validator(mode="after")
-    def _load_optional_vision(cls, model: "CobraEnvironment") -> "CobraEnvironment":
-        """Populate the optional vision settings when environment variables exist."""
+    def _load_optional_settings(self) -> "CobraEnvironment":
+        """Populate optional settings when their environment variables exist."""
 
-        if model.vision is not None:
-            return model
+        if self.vision is None:
+            self.vision = self._refresh_vision_settings()
 
-        model.vision = model._refresh_vision_settings()
-        return model
+        if self.speech is None:
+            self.speech = self._refresh_speech_settings()
+
+        return self
 
     def _refresh_vision_settings(self) -> Optional[GPTVision]:
         """Attempt to create a GPTVision instance and cache any validation errors."""
@@ -209,6 +251,25 @@ class CobraEnvironment(BaseSettings):
         self._vision_error = None
         return vision
 
+    def _refresh_speech_settings(self) -> Optional[AzureSpeech]:
+        """Attempt to create Azure Speech settings and cache validation errors."""
+
+        try:
+            speech = AzureSpeech()
+        except ValidationError as exc:
+            config = getattr(AzureSpeech, "model_config", {}) or {}
+            prefix = config.get("env_prefix", "") if hasattr(config, "get") else ""
+            self._speech_error = _format_missing_env_error(
+                exc=exc,
+                env_prefix=prefix,
+            )
+            return None
+        except ValueError as exc:
+            self._speech_error = str(exc)
+            return None
+
+        self._speech_error = None
+        return speech
 
     def require_vision(self) -> GPTVision:
         """Return the configured vision settings or raise a helpful error."""
@@ -216,12 +277,12 @@ class CobraEnvironment(BaseSettings):
         vision = self.vision or self._refresh_vision_settings()
         if vision is None:
             message = (
-
                 "Azure OpenAI vision environment variables are missing. Set "
-                "AZURE_OPENAI_GPT_VISION_ENDPOINT, AZURE_OPENAI_GPT_VISION_API_KEY, "
+                "AZURE_OPENAI_GPT_VISION_ENDPOINT, "
                 "AZURE_OPENAI_GPT_VISION_API_VERSION, and "
                 "AZURE_OPENAI_GPT_VISION_DEPLOYMENT before invoking video analysis "
-                "endpoints."
+                "endpoints. AZURE_OPENAI_GPT_VISION_API_KEY is optional; when it is "
+                "not set, Entra ID authentication is used."
             )
 
             if self._vision_error:
@@ -230,4 +291,29 @@ class CobraEnvironment(BaseSettings):
 
         self.vision = vision
         return vision
+
+    def require_speech(self) -> AzureSpeech:
+        """Return configured Speech settings or raise a helpful error."""
+
+        speech = self.speech or self._refresh_speech_settings()
+        if speech is None:
+            message = (
+                "Azure Speech environment variables are missing. Set "
+                "AZURE_SPEECH_REGION before generating transcripts. "
+                "When AZURE_SPEECH_USE_MANAGED_IDENTITY is true, also set "
+                "AZURE_SPEECH_RESOURCE_ID."
+            )
+
+            if self._speech_error:
+                message = f"{message}\nValidation details: {self._speech_error}"
+            raise RuntimeError(message)
+
+        if speech.use_managed_identity and not speech.resource_id:
+            raise RuntimeError(
+                "AZURE_SPEECH_RESOURCE_ID must be set when using Entra ID "
+                "authentication for Azure Speech."
+            )
+
+        self.speech = speech
+        return speech
 

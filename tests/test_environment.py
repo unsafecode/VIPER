@@ -33,6 +33,7 @@ VISION_ENV_VARS = {
     "AZURE_OPENAI_GPT_VISION_API_KEY": "test-key",
     "AZURE_OPENAI_GPT_VISION_API_VERSION": "2024-02-01",
     "AZURE_OPENAI_GPT_VISION_DEPLOYMENT": "gpt-vision",
+    "AZURE_OPENAI_GPT_VISION_MANAGED_IDENTITY_CLIENT_ID": "client-id",
 }
 
 
@@ -67,5 +68,36 @@ def test_cobra_environment_loads_vision_when_available(monkeypatch):
 
     assert vision.endpoint == VISION_ENV_VARS["AZURE_OPENAI_GPT_VISION_ENDPOINT"]
     assert vision.api_version == VISION_ENV_VARS["AZURE_OPENAI_GPT_VISION_API_VERSION"]
+    assert vision.api_key is not None
+    assert vision.managed_identity_client_id == "client-id"
     # ensure repeated calls reuse the cached configuration instead of rebuilding it
     assert env.require_vision() is vision
+
+
+def test_cobra_environment_loads_vision_without_api_key_for_entra_auth(
+    monkeypatch,
+):
+    for key, value in VISION_ENV_VARS.items():
+        if key != "AZURE_OPENAI_GPT_VISION_API_KEY":
+            monkeypatch.setenv(key, value)
+
+    env = CobraEnvironment()
+
+    vision = env.require_vision()
+
+    assert vision.endpoint == VISION_ENV_VARS["AZURE_OPENAI_GPT_VISION_ENDPOINT"]
+    assert vision.api_key is None
+
+
+def test_cobra_environment_rejects_blank_required_vision_values(monkeypatch):
+    for key, value in VISION_ENV_VARS.items():
+        if key != "AZURE_OPENAI_GPT_VISION_API_KEY":
+            monkeypatch.setenv(key, value)
+    monkeypatch.setenv("AZURE_OPENAI_GPT_VISION_ENDPOINT", "")
+
+    env = CobraEnvironment()
+
+    with pytest.raises(RuntimeError) as exc_info:
+        env.require_vision()
+
+    assert "AZURE_OPENAI_GPT_VISION_ENDPOINT must not be blank" in str(exc_info.value)

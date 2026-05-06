@@ -15,7 +15,9 @@ cd /path/to/local/repo/cobrapy
 2. Follow the official instructions to download and install FFmpeg:
 [https://ffmpeg.org/download.html](https://ffmpeg.org/download.html)
 
-3. Copy `sample.env` to `.env` at the repository root and populate it with your service credentials. The backend and UI components both consume environment variables from this shared file. Run `python scripts/apply_database_url.py` to materialize the local `DATABASE_URL` entry using the shared values in `config/database_urls.json`; the same configuration file provides the cloud connection string used by the container setup and deployment scripts.
+3. Copy `sample.env` to `.env` at the repository root and populate it with your service settings. The backend and UI components both consume environment variables from this shared file. Run `python scripts/apply_database_url.py` to materialize the local `DATABASE_URL` entry using the shared values in `config/database_urls.json`; the same configuration file provides the cloud connection string used by the container setup and deployment scripts.
+
+For local video validation with real Azure Speech and Azure OpenAI services, see [LOCAL_TESTING.md](LOCAL_TESTING.md).
 
 4. Start the FastAPI backend on port 8000:
 
@@ -46,11 +48,17 @@ The fastest way to deploy VIPER to Azure is using the [Azure Developer CLI](http
 
 ### Quick Start
 
-1. Copy `sample.env` to `.env` and populate it with your Azure service credentials:
+1. Copy `sample.env` to `.env` and populate it with your Azure service settings:
 
    ```bash
    cp sample.env .env
-   # Edit .env with your Azure OpenAI, Speech, Storage, and Search credentials
+   # Edit .env with your Azure OpenAI, Speech, Storage, and Search settings
+   ```
+
+   Load the `.env` values into the selected azd environment before provisioning:
+
+   ```bash
+   azd env set --file .env
    ```
 
 2. Initialize the azd environment (first time only):
@@ -66,9 +74,17 @@ The fastest way to deploy VIPER to Azure is using the [Azure Developer CLI](http
    ```
 
    This command will:
-   - Create or update Azure resources (Container Registry, Container Apps, Storage, Search, Cosmos DB)
+   - Create or update Azure resources (Container Registry, Container Apps, Storage, and Search)
    - Build and push Docker images for the backend and frontend
    - Deploy the containers with environment variables from your `.env` file
+
+For a backend-only COBRA API deployment, set `ENABLE_FRONTEND="false"` in `.env`, then run:
+
+```powershell
+azd env set --file .env
+azd provision
+azd deploy backend
+```
 
 ### Environment Variables
 
@@ -77,11 +93,14 @@ The deployment inherits configuration from your `.env` file. Key variables inclu
 | Variable | Description |
 |----------|-------------|
 | `AZURE_OPENAI_GPT_VISION_ENDPOINT` | Azure OpenAI endpoint for vision analysis |
-| `AZURE_OPENAI_GPT_VISION_API_KEY` | API key for Azure OpenAI |
+| `AZURE_OPENAI_GPT_VISION_API_KEY` | Optional API key for Azure OpenAI; leave blank for Entra ID |
+| `AZURE_OPENAI_GPT_VISION_RESOURCE_ID` | Azure OpenAI or AI Services resource ID for deployment-time managed identity RBAC |
 | `AZURE_SPEECH_REGION` | Azure Speech Services region |
+| `AZURE_SPEECH_RESOURCE_ID` | Azure Speech or AI Services resource ID for Entra ID authentication |
 | `AZURE_STORAGE_ACCOUNT_URL` | Blob storage URL for videos (auto-generated if not provided) |
 | `AZURE_SEARCH_ENDPOINT` | Azure AI Search endpoint (auto-generated if not provided) |
-| `DATABASE_URL` | PostgreSQL connection string |
+| `ENABLE_FRONTEND` | Set to `false` for backend-only COBRA API deployment |
+| `DATABASE_URL` | PostgreSQL connection string for the UI; required only when deploying the frontend |
 
 See `sample.env` for the complete list of configuration options.
 

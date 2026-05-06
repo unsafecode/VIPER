@@ -140,15 +140,20 @@ class VideoClient:
         self.env = CobraEnvironment()
 
         self.upload_to_azure = upload_to_azure
+        needs_storage_for_input = self._is_remote_path(video_path) or (
+            isinstance(manifest, str) and self._is_remote_path(manifest)
+        )
         self.storage_manager: Optional[AzureStorageManager] = None
-        if self.env.storage.is_configured():
+        if self.env.storage.is_configured() and (
+            self.upload_to_azure or needs_storage_for_input
+        ):
             try:
                 self.storage_manager = AzureStorageManager(self.env)
             except ValueError as exc:
                 print(f"Azure storage configuration is incomplete: {exc}")
 
         self.search_uploader: Optional[AzureSearchUploader] = None
-        if self.env.search.is_configured():
+        if self.upload_to_azure and self.env.search.is_configured():
             try:
                 self.search_uploader = AzureSearchUploader(self.env)
             except ValueError as exc:
@@ -237,7 +242,7 @@ class VideoClient:
         )
         write_video_manifest(self.manifest)
 
-        if self.storage_manager is not None:
+        if self.upload_to_azure and self.storage_manager is not None:
             try:
                 video_url = self.storage_manager.upload_source_video(self.manifest)
                 if video_url:
@@ -284,7 +289,7 @@ class VideoClient:
             reprocess_segments=reprocess_segments,
         )
 
-        if self.storage_manager is not None:
+        if self.upload_to_azure and self.storage_manager is not None:
             try:
                 uploaded = self.storage_manager.upload_analysis_result(
                     manifest=self.manifest,

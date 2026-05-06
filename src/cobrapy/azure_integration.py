@@ -10,10 +10,10 @@ from uuid import uuid4
 
 from azure.core.credentials import AzureKeyCredential, AzureNamedKeyCredential
 from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
-from azure.identity import DefaultAzureCredential
 from azure.search.documents import SearchClient
 from azure.storage.blob import BlobServiceClient, ContentSettings
 
+from .azure_credentials import build_azure_credential
 from .cobra_utils import generate_safe_dir_name
 from .models.environment import CobraEnvironment
 from .models.video import VideoManifest
@@ -58,7 +58,7 @@ class AzureStorageManager:
                 self.config.account_key.get_secret_value(),
             )
         else:
-            credential = DefaultAzureCredential(
+            credential = build_azure_credential(
                 managed_identity_client_id=self.config.managed_identity_client_id
             )
 
@@ -292,7 +292,7 @@ class AzureSearchUploader:
         if self.config.api_key:
             credential = AzureKeyCredential(self.config.api_key.get_secret_value())
         else:
-            credential = DefaultAzureCredential(
+            credential = build_azure_credential(
                 managed_identity_client_id=self.config.managed_identity_client_id
             )
 

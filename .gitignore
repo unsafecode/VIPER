@@ -531,6 +531,10 @@ ENV/
 env.bak/
 venv.bak/
 
+# Local COBRA/VIPER validation artifacts
+outputs/
+samples/local-test/
+
 # Spyder project settings
 .spyderproject
 .spyproject
