@@ -7,7 +7,7 @@ Follow these repository-specific rules when acting as a coding agent.
 - COBRA backend and library code is in `src/cobrapy`.
 - VIPER UI code is in `src/ui`.
 - Azure Developer CLI and Bicep assets are in `azure.yaml`, `infra/`, and `azure/`.
-- Local validation assets are `scripts/run_local_video_analysis.py`, `samples/cobra_sample_usage.ipynb`, and `LOCAL_TESTING.md`.
+- Local validation assets are `scripts/run_local_video_analysis.py`, `samples/cobra_sample_usage.ipynb`, and `docs/local-validation.md`.
 
 ## Required behavior
 
@@ -48,3 +48,10 @@ python scripts\run_local_video_analysis.py "C:\path\to\video.mp4" --output-dir o
 - Full stack: `azd up --no-prompt`.
 - Backend only: set `ENABLE_FRONTEND=false`, then `azd provision` and `azd deploy backend`.
 - If assigning BYO AI RBAC, use `AZURE_OPENAI_GPT_VISION_RESOURCE_ID` and `AZURE_SPEECH_RESOURCE_ID`.
+
+## Documentation notes
+
+- Keep `README.md` as an Azure-first index.
+- Put detailed Azure instructions in `docs/azure-deployment.md`.
+- Put detailed local MP4 validation instructions in `docs/local-validation.md`.
+- Put environment variable changes in `docs/configuration.md`.

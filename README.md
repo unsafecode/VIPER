@@ -1,15 +1,70 @@
 # COBRA / VIPER
 
-COBRA is a Python video-analysis library and FastAPI service for extracting structured insights from video with Azure Speech and vision-capable Azure OpenAI deployments. VIPER is the optional Next.js user interface that sits in front of the COBRA backend.
+COBRA is a Python video-analysis backend for extracting structured insights from video with Azure Speech and vision-capable Azure OpenAI deployments. VIPER is the optional Next.js UI that can sit in front of the COBRA API.
 
-The repository supports two primary workflows:
+This README is the index. Start with Azure deployment, then use local validation when you want the easier path for testing one MP4 before deploying.
 
-| Workflow | Use when | Entry point |
+## Start here: deploy to Azure
+
+Use Azure Developer CLI (`azd`) for deployment.
+
+| Deployment | Use when | Command |
 | --- | --- | --- |
-| Local COBRA validation | You want to test real analysis on a local MP4 before deployment | `scripts\run_local_video_analysis.py` or `samples\cobra_sample_usage.ipynb` |
-| Azure deployment | You want to host the COBRA backend, optionally with the VIPER UI | `azd up`, or backend-only `azd provision` + `azd deploy backend` |
+| Backend-only COBRA API | You only need the API for video upload and analysis | `azd provision` then `azd deploy backend` |
+| Full COBRA + VIPER UI | You also need the browser UI, auth, and PostgreSQL-backed UI state | `azd up --no-prompt` |
 
-The code paths are real-service-only. Local validation and deployed analysis use real preprocessing, real Azure Speech transcription, and real Azure OpenAI calls.
+Minimal flow:
+
+```powershell
+Copy-Item sample.env .env
+# Edit .env with Azure OpenAI/Speech settings and deployment choices.
+azd env set --file .env
+azd up --no-prompt
+```
+
+For backend-only deployment:
+
+```powershell
+Copy-Item sample.env .env
+# Edit .env with Azure OpenAI/Speech settings and set ENABLE_FRONTEND=false.
+azd env set --file .env
+azd env set ENABLE_FRONTEND false
+azd provision
+azd deploy backend
+```
+
+Detailed guide: [docs/azure-deployment.md](docs/azure-deployment.md)
+
+## Easier option: validate locally on one MP4
+
+Before deploying, you can run the real COBRA pipeline against a local video file. This uses real preprocessing, real Azure OpenAI, and real Azure Speech when transcripts are enabled.
+
+```powershell
+python -m pip install -e .
+python scripts\run_local_video_analysis.py "C:\path\to\video.mp4" `
+  --output-dir outputs\my-video `
+  --segment-length 10 `
+  --fps 0.5
+```
+
+Skip Speech transcription if you only need visual analysis:
+
+```powershell
+python scripts\run_local_video_analysis.py "C:\path\to\video.mp4" --no-transcripts
+```
+
+Detailed guide: [docs/local-validation.md](docs/local-validation.md)
+
+## Documentation index
+
+| Document | Purpose |
+| --- | --- |
+| [docs/azure-deployment.md](docs/azure-deployment.md) | Azure deployment with azd, backend-only vs full-stack, RBAC, smoke tests |
+| [docs/local-validation.md](docs/local-validation.md) | Local MP4 validation with the CLI script or notebook |
+| [docs/configuration.md](docs/configuration.md) | Environment variables and keyless auth configuration |
+| [docs/development.md](docs/development.md) | Local backend/UI development and validation commands |
+| [azure/README.md](azure/README.md) | Additional Azure infrastructure details |
+| [AGENTS.md](AGENTS.md) | Coding-agent rules for this repository |
 
 ## Repository layout
 
@@ -17,197 +72,22 @@ The code paths are real-service-only. Local validation and deployed analysis use
 | --- | --- |
 | `src\cobrapy` | COBRA Python package, preprocessing, analysis, Azure integration, and FastAPI backend |
 | `src\ui` | VIPER Next.js UI |
-| `scripts\run_local_video_analysis.py` | Local MP4 smoke-test runner for real COBRA analysis |
-| `samples\cobra_sample_usage.ipynb` | Notebook version of the local MP4 workflow |
-| `LOCAL_TESTING.md` | Detailed local test guide |
+| `scripts\run_local_video_analysis.py` | Local MP4 validation runner |
+| `samples\cobra_sample_usage.ipynb` | Notebook version of the local validation flow |
 | `infra\main.bicep` and `azure\containerapps.bicep` | azd/Bicep deployment templates |
 | `azure.yaml` | Azure Developer CLI service and deployment hooks |
 | `sample.env` | Environment variable template |
 
-## Prerequisites
+## Principles
 
-- Python 3.11
-- FFmpeg and ffprobe on `PATH`
-- Docker Desktop for container builds and azd deployment
-- Azure Developer CLI (`azd`) and Azure CLI (`az`)
-- Access to an Azure OpenAI or Azure AI Services resource with a chat/vision-capable deployment
-- Access to an Azure Speech-capable resource when transcript generation is enabled
-
-Verify FFmpeg:
-
-```powershell
-ffmpeg -version
-ffprobe -version
-```
-
-## Configuration
-
-Copy the environment template and fill in values for the workflow you need:
-
-```powershell
-Copy-Item sample.env .env
-```
-
-Key variables:
-
-| Variable | Required for | Notes |
-| --- | --- | --- |
-| `AZURE_OPENAI_GPT_VISION_ENDPOINT` | local analysis, backend analysis | Azure OpenAI or AI Services endpoint |
-| `AZURE_OPENAI_GPT_VISION_API_VERSION` | local analysis, backend analysis | Must match the target deployment/API surface |
-| `AZURE_OPENAI_GPT_VISION_DEPLOYMENT` | local analysis, backend analysis | Deployment name, not model family name |
-| `AZURE_OPENAI_GPT_VISION_API_KEY` | optional | Leave blank for Entra ID authentication |
-| `AZURE_OPENAI_GPT_VISION_RESOURCE_ID` | deployment-time RBAC | Optional; when set, hooks assign backend identity `Cognitive Services OpenAI User` |
-| `AZURE_SPEECH_REGION` | transcripts | Speech region |
-| `AZURE_SPEECH_USE_MANAGED_IDENTITY` | transcripts | Use `true` for keyless Entra ID auth |
-| `AZURE_SPEECH_RESOURCE_ID` | keyless transcripts | Required for Speech SDK Entra ID token format |
-| `AZURE_STORAGE_ACCOUNT_URL` | Azure upload/deployment | Auto-generated by infra when blank |
-| `AZURE_SEARCH_ENDPOINT` | Azure Search uploads | Auto-generated by infra when blank |
-| `ENABLE_FRONTEND` | azd deployment | Set `false` for backend-only COBRA API deployment |
-| `DATABASE_URL` | VIPER UI | PostgreSQL connection string; required only when running/deploying the UI |
-| `NEXTAUTH_SECRET` | VIPER UI | Required only when running/deploying the UI |
-| `NEXTAUTH_URL` | VIPER UI | Leave blank for Azure deployment so infra uses the frontend Container App URL |
-
-## Local COBRA MP4 validation
-
-Install the Python package:
-
-```powershell
-python -m pip install -e .
-```
-
-Authenticate to the Azure tenant that owns your OpenAI/Speech resources. When working across tenants, isolate Azure CLI and azd state before login:
-
-```powershell
-$env:AZURE_CONFIG_DIR = "C:\Users\<you>\.azure-tenants\<alias>"
-$env:AZD_CONFIG_DIR = "C:\Users\<you>\.azd-tenants\<alias>"
-az login --tenant "<tenant-id>"
-az account set --subscription "<subscription-name-or-id>"
-az account show --query "{subscription:name, tenant:tenantId}" -o table
-azd auth login
-```
-
-Run real local analysis on an MP4:
-
-```powershell
-python scripts\run_local_video_analysis.py "C:\path\to\video.mp4" `
-  --output-dir outputs\my-video `
-  --segment-length 10 `
-  --fps 0.5
-```
-
-Skip Speech transcription when you only need visual analysis:
-
-```powershell
-python scripts\run_local_video_analysis.py "C:\path\to\video.mp4" --no-transcripts
-```
-
-Outputs are written under the selected output directory and include the manifest, extracted frames, WAV audio when present, transcript details when enabled, prompts, and analysis JSON. See `LOCAL_TESTING.md` for the full guide and troubleshooting notes.
-
-## Run the backend locally
-
-```powershell
-poetry install
-poetry run uvicorn cobrapy.api.app:app --host 0.0.0.0 --port 8000
-```
-
-Main API endpoints:
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `POST` | `/videos/upload` | Upload a video locally or to Azure Storage |
-| `POST` | `/analysis/action-summary` | Run Action Summary analysis |
-| `POST` | `/analysis/chapter-analysis` | Run Chapter Analysis |
-
-## Run the VIPER UI locally
-
-The UI is optional for COBRA backend testing. It requires a PostgreSQL `DATABASE_URL` and NextAuth configuration.
-
-```powershell
-Set-Location src\ui
-npm install
-npm run dev
-```
-
-The development server listens on port 3000 and proxies backend calls to `http://localhost:8000` by default.
-
-## Deploy to Azure with azd
-
-Load `.env` values into the selected azd environment before provisioning:
-
-```powershell
-azd env set --file .env
-```
-
-Full-stack deployment:
-
-```powershell
-azd up --no-prompt
-```
-
-Backend-only COBRA API deployment:
-
-```powershell
-azd env set ENABLE_FRONTEND false
-azd provision
-azd deploy backend
-```
-
-The deployment creates or updates:
-
-- Azure Container Registry
-- Azure Container Apps environment
-- COBRA backend Container App
-- VIPER frontend Container App when `ENABLE_FRONTEND` is not `false`
-- Storage Account
-- Azure AI Search
-- Private endpoints and private DNS where configured
-
-Cosmos DB remains disabled by default because the current backend runtime does not require it.
-
-### Keyless Azure auth
-
-The backend uses Entra ID when service API keys are blank. The shared credential chain is:
-
-1. Azure Developer CLI credential
-2. Azure CLI credential
-3. Managed identity credential
-
-When `AZURE_OPENAI_GPT_VISION_RESOURCE_ID` or `AZURE_SPEECH_RESOURCE_ID` is set, `azure.yaml` postprovision hooks assign the backend managed identity the RBAC required for those resources.
-
-## Validation commands
-
-Run the checks that match your changes:
-
-```powershell
-python -m pytest -q
-az bicep build --file infra\main.bicep
-docker build -f Dockerfile.backend -t viper-backend-localcheck .
-docker build -f Dockerfile.frontend -t viper-frontend-localcheck .
-```
-
-For deployed UI smoke testing, unauthenticated behavior should be:
-
-| Path | Expected |
-| --- | --- |
-| `/login` | HTTP 200 and rendered sign-in form |
-| `/api/auth/session` | HTTP 200 with `{}` when not signed in |
-| `/dashboard` | Redirect to sign-in |
-
-## Troubleshooting
-
-| Symptom | Likely cause | Fix |
-| --- | --- | --- |
-| FFmpeg command fails | `ffmpeg` or `ffprobe` is missing or cannot decode the input | Install FFmpeg and verify both commands are on `PATH` |
-| Speech auth succeeds but transcript is empty | Missing Speech SDK resource ID token shape, no speech in clip, or wrong language | Set `AZURE_SPEECH_RESOURCE_ID`, verify region, and test with a short clip containing clear speech |
-| Azure OpenAI returns auth errors | Wrong tenant context or missing RBAC | Re-authenticate with isolated `AZURE_CONFIG_DIR`; verify resource access or set RBAC resource ID for deployment |
-| `NEXTAUTH_URL` is invalid in Azure | Literal or local-only value deployed | Leave `NEXTAUTH_URL` blank for Azure and run `azd env set --file .env` before `azd up` |
-| UI build fails at Prisma generation | `DATABASE_URL` missing at build time | Use the provided `Dockerfile.frontend`; it supplies a build-time placeholder |
+- Real code paths only: no stubbed analysis or fake model responses.
+- Prefer Entra ID and managed identity. API keys are optional where keyless auth is supported.
+- Keep tenant, subscription, customer, and resource-specific values out of committed files.
+- Keep generated videos and analysis outputs out of git.
 
 ## Contributing
 
 This project welcomes contributions and suggestions. Most contributions require you to agree to a Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us the rights to use your contribution. For details, visit https://cla.opensource.microsoft.com.
-
-When you submit a pull request, a CLA bot will automatically determine whether you need to provide a CLA and decorate the PR appropriately. Follow the instructions provided by the bot. You only need to do this once across all repos using the CLA.
 
 This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/). For more information, see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or contact [opencode@microsoft.com](mailto:opencode@microsoft.com).
 
