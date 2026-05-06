@@ -7,6 +7,16 @@ Copy-Item sample.env .env
 azd env set --file .env
 ```
 
+To quickly fill local `.env` from the selected azd environment after provisioning or deployment:
+
+```powershell
+azd env get-values |
+  Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } |
+  Set-Content .env
+```
+
+This overwrites `.env`, which is ignored by git.
+
 ## COBRA backend
 
 | Variable | Required | Description |

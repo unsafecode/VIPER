@@ -2,7 +2,18 @@
 
 COBRA is a Python video-analysis backend for extracting structured insights from video with Azure Speech and vision-capable Azure OpenAI deployments. VIPER is the optional Next.js UI that can sit in front of the COBRA API.
 
-This README is the index. Start with Azure deployment, then use local validation when you want the easier path for testing one MP4 before deploying.
+This README is the index. Start with Azure deployment so the required Azure AI resources exist, then use local validation when you want the easier path for testing one MP4.
+
+## Contents
+
+| Section | Start here when |
+| --- | --- |
+| [Deploy to Azure](#start-here-deploy-to-azure) | You want to host COBRA or the full COBRA/VIPER app |
+| [Validate locally on one MP4](#then-validate-locally-on-one-mp4) | Azure AI resources already exist and you want a quick real-service test |
+| [Documentation index](#documentation-index) | You need detailed setup, configuration, deployment, or development docs |
+| [Repository layout](#repository-layout) | You want to understand where code and infrastructure live |
+| [Principles](#principles) | You are changing code or docs and need project guardrails |
+| [Contributing](#contributing) | You are opening a PR or need project policy links |
 
 ## Start here: deploy to Azure
 
@@ -35,9 +46,17 @@ azd deploy backend
 
 Detailed guide: [docs/azure-deployment.md](docs/azure-deployment.md)
 
-## Easier option: validate locally on one MP4
+## Then validate locally on one MP4
 
-Before deploying, you can run the real COBRA pipeline against a local video file. This uses real preprocessing, real Azure OpenAI, and real Azure Speech when transcripts are enabled.
+Local validation is the easier test path after Azure OpenAI/Azure AI Services and Speech resources exist. If you do not have those resources yet, start with Azure deployment above. You can use existing AI resources, or deploy/provision first and then hydrate `.env` from the selected azd environment:
+
+```powershell
+azd env get-values |
+  Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } |
+  Set-Content .env
+```
+
+This overwrites the local `.env` file, which is ignored by git. Review the file, then run the real COBRA pipeline against a local video file:
 
 ```powershell
 python -m pip install -e .

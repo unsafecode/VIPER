@@ -1,6 +1,6 @@
 # Local COBRA video validation
 
-Use local validation when you want the easier path for testing a single MP4 before Azure deployment. The flow still uses real preprocessing, real Azure OpenAI, and real Azure Speech when transcripts are enabled.
+Use local validation when Azure OpenAI/Azure AI Services and Speech resources already exist and you want the easier path for testing a single MP4. If those resources do not exist yet, start with [Azure deployment](azure-deployment.md). The flow still uses real preprocessing, real Azure OpenAI, and real Azure Speech when transcripts are enabled.
 
 ## Prerequisites
 
@@ -38,7 +38,15 @@ azd auth login
 
 ## Configure `.env`
 
-Copy `sample.env` to `.env` and set these values. Leave API keys blank for keyless auth.
+Copy `sample.env` to `.env` and set these values, or hydrate `.env` from the selected azd environment after deployment/provisioning:
+
+```powershell
+azd env get-values |
+  Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } |
+  Set-Content .env
+```
+
+This overwrites the local `.env` file. Leave API keys blank for keyless auth.
 
 ```text
 AZURE_OPENAI_GPT_VISION_API_KEY=""

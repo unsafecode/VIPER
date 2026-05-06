@@ -62,6 +62,18 @@ azd env set --file .env
 
 See [configuration.md](configuration.md) for the full environment variable reference.
 
+## Fill local `.env` from azd
+
+After `azd env set --file .env`, `azd provision`, or `azd up`, the selected azd environment is the source of truth for deployment values. To quickly refresh a local `.env` from that azd environment:
+
+```powershell
+azd env get-values |
+  Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } |
+  Set-Content .env
+```
+
+This overwrites `.env`, and `.env` is ignored by git. Review the result before running local scripts.
+
 ## Backend-only deployment
 
 Use this first when the goal is to expose only the COBRA API.
