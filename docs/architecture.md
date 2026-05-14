@@ -23,48 +23,78 @@ Azure deployment is the primary hosted path. Local validation is a convenience p
 
 ## Hosted Azure topology
 
-```text
-User or client
-  |
-  | HTTPS
-  v
-VIPER frontend Container App (optional, public)
-  |
-  | internal HTTPS
-  v
-COBRA backend Container App
-  |
-  +--> Azure OpenAI / Azure AI Services deployment
-  |
-  +--> Azure Speech, when transcripts are enabled
-  |
-  +--> Azure Blob Storage, for source videos and analysis artifacts
-  |
-  +--> Azure AI Search, for searchable uploaded analysis artifacts
+```mermaid
+flowchart LR
+    user[User or API client]
+
+    subgraph aca[Azure Container Apps]
+        frontend[VIPER frontend<br/>optional Next.js UI]
+        backend[COBRA backend<br/>FastAPI service]
+    end
+
+    subgraph ai[Azure AI]
+        openai[Azure OpenAI or<br/>Azure AI Services deployment]
+        speech[Azure Speech<br/>optional transcripts]
+    end
+
+    subgraph data[Data services]
+        storage[Azure Blob Storage<br/>videos and artifacts]
+        search[Azure AI Search<br/>searchable analysis artifacts]
+    end
+
+    user -->|HTTPS| frontend
+    user -->|HTTPS for API-only deployments| backend
+    frontend -->|internal HTTPS| backend
+    backend -->|vision + text prompts| openai
+    backend -->|WAV PCM audio| speech
+    backend -->|read/write blobs| storage
+    backend -->|upload indexed results| search
 ```
 
 The backend is the core service. The frontend is optional and can be disabled with `ENABLE_FRONTEND=false` for backend-only COBRA API deployments.
 
 ## Local validation topology
 
-```text
-Local MP4
-  |
-  v
-scripts\run_local_video_analysis.py
-  |
-  v
-VideoClient(upload_to_azure=False)
-  |
-  +--> local FFmpeg / ffprobe preprocessing
-  +--> Azure Speech, when transcripts are enabled
-  +--> Azure OpenAI / Azure AI Services deployment
-  +--> local outputs directory
+```mermaid
+flowchart LR
+    mp4[Local MP4]
+    cli[scripts\\run_local_video_analysis.py]
+    client[VideoClient<br/>upload_to_azure=false]
+    ffmpeg[Local FFmpeg / ffprobe]
+    speech[Azure Speech<br/>optional]
+    openai[Azure OpenAI or<br/>Azure AI Services]
+    outputs[outputs\\...<br/>ignored by git]
+
+    mp4 --> cli --> client
+    client -->|metadata, frames, WAV audio| ffmpeg
+    client -->|transcript when enabled| speech
+    client -->|vision analysis| openai
+    client -->|analysis JSON and artifacts| outputs
 ```
 
 Local validation does not initialize Storage or Search unless remote blob input requires Storage. Generated files should stay under `outputs\` or `samples\local-test\`.
 
 ## Video analysis pipeline
+
+```mermaid
+flowchart TD
+    input[Video input<br/>local file, upload, blob, or manifest]
+    metadata[Extract metadata<br/>ffprobe]
+    segment[Create analysis segments]
+    frames[Extract representative frames]
+    audio{Transcripts enabled<br/>and audio exists?}
+    wav[Extract WAV PCM<br/>pcm_s16le, mono, 16 kHz]
+    transcript[Transcribe with Azure Speech]
+    prompt[Build prompt from<br/>instructions, frames, metadata, transcript]
+    model[Call Azure OpenAI / Azure AI Services]
+    persist[Write local results<br/>and optionally upload to Storage/Search]
+
+    input --> metadata --> segment --> frames --> audio
+    audio -->|yes| wav --> transcript --> prompt
+    audio -->|no| prompt
+    frames --> prompt
+    prompt --> model --> persist
+```
 
 1. **Input selection**
    - Local file path, uploaded file, remote blob URL, or existing manifest.
@@ -128,6 +158,31 @@ Deployment-time RBAC for bring-your-own AI resources is handled by `azure.yaml` 
 | `POST` | `/analysis/chapter-analysis` | Preprocess and run Chapter Analysis |
 
 The API can accept a source video path or a pre-generated manifest path depending on the request.
+
+## Request flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Caller as User / client
+    participant API as COBRA FastAPI backend
+    participant Pre as VideoPreProcessor
+    participant Speech as Azure Speech
+    participant AOAI as Azure OpenAI / Azure AI Services
+    participant Store as Storage / Search / local outputs
+
+    Caller->>API: POST /analysis/action-summary or /analysis/chapter-analysis
+    API->>Pre: Build manifest, extract frames, extract WAV audio
+    alt transcripts enabled
+        Pre->>Speech: Submit WAV PCM audio with keyless or key auth
+        Speech-->>Pre: Transcript segments
+    end
+    Pre-->>API: Manifest with frames, metadata, optional transcript
+    API->>AOAI: Send analysis prompt and frame inputs
+    AOAI-->>API: Structured analysis response
+    API->>Store: Persist local artifacts and optional Azure uploads
+    API-->>Caller: Analysis result
+```
 
 ## Deployment infrastructure
 
