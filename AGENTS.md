@@ -52,6 +52,7 @@ python scripts\run_local_video_analysis.py "C:\path\to\video.mp4" --output-dir o
 ## Documentation notes
 
 - Keep `README.md` as an Azure-first index.
+- Put architecture, runtime flow, auth model, and deployment topology changes in `docs/architecture.md`.
 - Put detailed Azure instructions in `docs/azure-deployment.md`.
 - Put detailed local MP4 validation instructions in `docs/local-validation.md`.
 - Put environment variable changes in `docs/configuration.md`.

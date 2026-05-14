@@ -1,6 +1,6 @@
 # Copilot instructions for COBRA / VIPER
 
-This repository contains COBRA, a Python video-analysis library and FastAPI backend, plus VIPER, an optional Next.js UI. Keep changes aligned with the Azure deployment and real-service local validation flows documented in `README.md`, `docs/azure-deployment.md`, and `docs/local-validation.md`.
+This repository contains COBRA, a Python video-analysis library and FastAPI backend, plus VIPER, an optional Next.js UI. Keep changes aligned with the architecture, Azure deployment, and real-service local validation flows documented in `README.md`, `docs/architecture.md`, `docs/azure-deployment.md`, and `docs/local-validation.md`.
 
 ## Non-negotiables
 
@@ -60,6 +60,7 @@ For deployed frontend smoke tests, unauthenticated expected behavior is:
 ## Documentation
 
 - Keep `README.md` as an Azure-first index, not a long how-to.
+- Update `docs/architecture.md` for architecture, runtime flow, auth model, or deployment topology changes.
 - Update `docs/azure-deployment.md` for deployment changes.
 - Update `docs/local-validation.md` for local MP4 workflow changes.
 - Update `docs/configuration.md` for environment variable changes.

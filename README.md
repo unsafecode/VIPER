@@ -78,6 +78,7 @@ Detailed guide: [docs/local-validation.md](docs/local-validation.md)
 
 | Document | Purpose |
 | --- | --- |
+| [docs/architecture.md](docs/architecture.md) | Component architecture, runtime flows, auth model, and deployment topology |
 | [docs/azure-deployment.md](docs/azure-deployment.md) | Azure deployment with azd, backend-only vs full-stack, RBAC, smoke tests |
 | [docs/local-validation.md](docs/local-validation.md) | Local MP4 validation with the CLI script or notebook |
 | [docs/configuration.md](docs/configuration.md) | Environment variables and keyless auth configuration |
